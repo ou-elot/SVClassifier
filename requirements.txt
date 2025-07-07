@@ -1,0 +1,23 @@
+# SV Classifier Requirements
+# Core dependencies for the structural variant image classifier
+
+# OpenAI API client (for ChatGPT Vision)
+openai>=1.0.0
+
+# Image processing
+Pillow>=9.0.0
+
+# Standard library modules (usually included with Python)
+# pathlib - for file path handling
+# argparse - for command line arguments  
+# json - for JSON file handling
+# base64 - for image encoding
+# os - for operating system interface
+# typing - for type hints
+# dataclasses - for data structures
+
+# Optional: For better error handling and progress tracking
+tqdm>=4.64.0
+
+# Optional: For enhanced JSON handling
+jsonschema>=4.0.0
