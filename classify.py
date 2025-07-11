@@ -2,663 +2,495 @@ import openai
 import base64
 import json
 import os
+import csv
 from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+import logging
 from pathlib import Path
-import argparse
 
-# Global API key configuration
-OPENAI_API_KEY = "ilikehotdogs" #enter actual api key here from openai
-
-@dataclass
-class SVResult:
-    """Result from SV analysis"""
-    is_real_sv: bool
-    sv_type: str
-    confidence: float
-    explanation: str
-    supporting_evidence: List[str]
-    visual_features: Dict[str, str]
-
-class SVTypeSpecificAnalyzer:
+class BamsnapSVValidator:
     """
-    SV Type-Specific Analyzer that uses different training data and criteria
-    for each structural variant type
+    A class to validate structural variants (deletions) from bamsnap IGV plots
+    using OpenAI's GPT-4 Vision API.
     """
     
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         """
-        Initialize the SV analyzer
+        Initialize the validator with OpenAI API key and model.
         
         Args:
-            model: GPT model to use
+            api_key: OpenAI API key
+            model: GPT model to use (default: gpt-4o for vision capabilities)
         """
-        self.client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        self.client = openai.OpenAI(api_key=api_key)
         self.model = model
-        self.sv_type_training = {}  # Store training data by SV type
-        self.sv_type_criteria = self._get_sv_type_criteria()
+        self.logger = logging.getLogger(__name__)
         
-    def _get_sv_type_criteria(self) -> Dict[str, Dict]:
-        """
-        Define specific visual criteria for each SV type
-        """
-        return {
-            "DEL": {
-                "primary_features": [
-                    "Sharp coverage drop in deleted region",
-                    "Outward-facing discordant read pairs (-->  <--)",
-                    "Split reads at breakpoints with soft-clipped sequences",
-                    "Well-defined breakpoint boundaries"
-                ],
-                "coverage_pattern": "Significant decrease (50%+ drop)",
-                "read_pair_orientation": "Outward-facing at breakpoints",
-                "false_positive_indicators": [
-                    "Gradual coverage decline",
-                    "Low mapping quality reads",
-                    "Repetitive sequence context",
-                    "Scattered discordant pairs"
-                ]
-            },
-            "DUP": {
-                "primary_features": [
-                    "Coverage increase in duplicated region (1.5x+ baseline)",
-                    "Inward-facing discordant read pairs (<--  -->)",
-                    "Junction reads at duplication boundaries",
-                    "Consistent increased depth across region"
-                ],
-                "coverage_pattern": "Significant increase (150%+ of baseline)",
-                "read_pair_orientation": "Inward-facing at breakpoints",
-                "false_positive_indicators": [
-                    "Irregular coverage pattern",
-                    "Mixed read orientations",
-                    "GC bias artifacts",
-                    "Segmental duplication regions"
-                ]
-            },
-            "INV": {
-                "primary_features": [
-                    "Read pairs with same orientation (-->  --> or <--  <--)",
-                    "Split reads at both breakpoints",
-                    "No coverage change (balanced rearrangement)",
-                    "Clear inversion junction signatures"
-                ],
-                "coverage_pattern": "No significant change",
-                "read_pair_orientation": "Same orientation within inversion",
-                "false_positive_indicators": [
-                    "Coverage fluctuations",
-                    "Mixed orientations",
-                    "Poor breakpoint definition",
-                    "Low complexity regions"
-                ]
-            },
-            "TRA": {
-                "primary_features": [
-                    "Discordant pairs mapping to different chromosomes",
-                    "Split reads showing inter-chromosomal junctions",
-                    "High mapping quality for supporting reads",
-                    "Clustered breakpoint evidence"
-                ],
-                "coverage_pattern": "No change for balanced translocations",
-                "read_pair_orientation": "Cross-chromosomal mapping",
-                "false_positive_indicators": [
-                    "Low mapping quality",
-                    "Repetitive elements",
-                    "Scattered evidence",
-                    "Common fragile sites"
-                ]
-            },
-            "INS": {
-                "primary_features": [
-                    "Split reads with inserted sequences",
-                    "No coverage change at insertion site",
-                    "Soft-clipped reads containing insert sequence",
-                    "Discordant pairs if large insertion"
-                ],
-                "coverage_pattern": "No significant change",
-                "read_pair_orientation": "Normal for small, discordant for large",
-                "false_positive_indicators": [
-                    "Poor sequence quality",
-                    "Homopolymer regions",
-                    "Sequencing artifacts",
-                    "Low complexity inserts"
-                ]
-            }
-        }
-    
-    def load_sv_type_training(self, training_dir: str) -> None:
-        """
-        Load training data organized by SV type, including both images and annotations
+        # SV validation rules for deletions
+        self.deletion_rules = """SV Validation Rules for Deletions:
         
-        Args:
-            training_dir: Directory containing SV-type-specific subdirectories (del, dup, inv, tra, ins)
-        """
-        training_path = Path(training_dir)
-        
-        if not training_path.exists():
-            print(f"Warning: Training directory {training_dir} not found")
-            return
-        
-        # Look for SV-type-specific subdirectories matching your structure
-        sv_type_mapping = {
-            "del": "DEL",
-            "dup": "DUP", 
-            "inv": "INV",
-            "tra": "TRA",
-            "ins": "INS"
-        }
-        
-        for folder_name, sv_type in sv_type_mapping.items():
-            sv_type_dir = training_path / folder_name
-            if sv_type_dir.exists() and sv_type_dir.is_dir():
-                self.sv_type_training[sv_type] = []
-                
-                # Load all JSON files directly from the SV type folder
-                json_files = list(sv_type_dir.glob("*.json"))
-                
-                for json_file in json_files:
-                    try:
-                        with open(json_file, 'r') as f:
-                            training_data = json.load(f)
-                        
-                        # Look for corresponding image file
-                        image_filename = training_data.get("filename", "")
-                        if image_filename:
-                            # Try to find the image in the same directory
-                            image_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif']
-                            image_found = False
-                            
-                            for ext in image_extensions:
-                                # Try exact filename first
-                                image_path = sv_type_dir / image_filename
-                                if image_path.exists():
-                                    training_data["image_path"] = str(image_path)
-                                    image_found = True
-                                    break
-                                
-                                # Try filename without extension + this extension
-                                base_name = Path(image_filename).stem
-                                image_path = sv_type_dir / f"{base_name}{ext}"
-                                if image_path.exists():
-                                    training_data["image_path"] = str(image_path)
-                                    image_found = True
-                                    break
-                            
-                            if image_found:
-                                self.sv_type_training[sv_type].append(training_data)
-                                print(f"Loaded training pair: {json_file.name} + {Path(training_data['image_path']).name}")
-                            else:
-                                print(f"Warning: Image not found for {json_file.name} (looking for {image_filename})")
-                        else:
-                            print(f"Warning: No filename specified in {json_file.name}")
-                            
-                    except (json.JSONDecodeError, FileNotFoundError) as e:
-                        print(f"Warning: Could not load {json_file}: {e}")
-                        continue
-                
-                if self.sv_type_training[sv_type]:
-                    print(f"Loaded {len(self.sv_type_training[sv_type])} complete training examples for {sv_type}")
-                else:
-                    print(f"No complete training pairs found in {sv_type_dir}")
-            else:
-                print(f"SV type directory not found: {sv_type_dir}")
-        
-        # Summary
-        total_examples = sum(len(examples) for examples in self.sv_type_training.values())
-        if total_examples == 0:
-            print("Warning: No complete training examples loaded. Ensure both JSON and image files are present.")
-        else:
-            print(f"Total complete training examples loaded: {total_examples}")
-            for sv_type, examples in self.sv_type_training.items():
-                if examples:
-                    real_count = sum(1 for ex in examples if ex.get("is_real", False))
-                    false_count = len(examples) - real_count
-                    print(f"  {sv_type}: {len(examples)} examples ({real_count} real, {false_count} false positive)")
-    
-    def select_training_examples(self, examples: List[Dict], max_examples: int = None, use_all: bool = False) -> List[Dict]:
-        """
-        Select training examples for optimal learning
-        
-        Args:
-            examples: List of training examples with images
-            max_examples: Maximum number of examples to select (None = no limit)
-            use_all: If True, use all available examples regardless of max_examples
-            
-        Returns:
-            Selected subset of examples
-        """
-        if use_all or max_examples is None:
-            print(f"Using all {len(examples)} training examples")
-            return examples
-            
-        if len(examples) <= max_examples:
-            return examples
-        
-        # Separate real and false examples
-        real_examples = [ex for ex in examples if ex.get("is_real", False)]
-        false_examples = [ex for ex in examples if not ex.get("is_real", True)]
-        
-        # Try to get balanced selection
-        target_real = min(len(real_examples), max_examples // 2)
-        target_false = min(len(false_examples), max_examples - target_real)
-        
-        # If we have more false than real, adjust
-        if target_false < max_examples // 2 and len(real_examples) > target_real:
-            target_real = min(len(real_examples), max_examples - target_false)
-        
-        selected = []
-        
-        # Select real examples (prioritize high confidence if available)
-        real_sorted = sorted(real_examples, 
-                           key=lambda x: x.get("confidence_level", 0.5), 
-                           reverse=True)
-        selected.extend(real_sorted[:target_real])
-        
-        # Select false examples (prioritize high confidence if available)
-        false_sorted = sorted(false_examples, 
-                            key=lambda x: x.get("confidence_level", 0.5), 
-                            reverse=True)
-        selected.extend(false_sorted[:target_false])
-        
-        print(f"Selected {len(selected)} examples: {len([ex for ex in selected if ex.get('is_real')])} real, {len([ex for ex in selected if not ex.get('is_real')])} false")
-        
-        return selected
-    
-    def create_sv_specific_prompt(self, suspected_sv_type: str, use_all_training: bool = False) -> Tuple[str, List[Dict]]:
-        """
-        Create analysis prompt with training images for ChatGPT Vision
-        
-        Args:
-            suspected_sv_type: SV type to focus analysis on (required)
-            use_all_training: If True, use all training examples instead of limiting
-            
-        Returns:
-            Tuple of (prompt_text, list_of_content_items_with_images)
-        """
-        if not suspected_sv_type or suspected_sv_type not in self.sv_type_criteria:
-            raise ValueError(f"Must specify valid SV type. Choose from: {list(self.sv_type_criteria.keys())}")
-        
-        content_items = []
-        
-        # Create focused prompt for specific SV type
-        criteria = self.sv_type_criteria[suspected_sv_type]
-        
-        prompt_text = f"""
-You are an expert in {suspected_sv_type} structural variant analysis. Analyze the TARGET image based on these training examples and criteria.
+Vertical dashed lines mark the candidate deletion breakpoints. The top panel shows the sample and the bottom panel the control. Within each panel, aligned reads occupy the upper track and coverage is plotted below. Deletions are labeled as a true event (1) if signals are present in the sample panel but absent in the control.
 
-SPECIFIC CRITERIA FOR {suspected_sv_type}:
+How reads appear in a Bamsnap plot:
+* Red bars in or flanking the deletion region: reads with insert size > 500bp, evidence of potential deletion
+* Soft clipped parts (little colored stubs at the end of a read's grey alignment block): the part of the read that does not align to the reference genome, but the unaligned portion is still retained in the read data; this is common in structural variant detection and can indicate breakpoints or mismatches
+* Gray alignment bar: the portion of each read that actually lines up to the reference sequence.
 
-Primary Features to Look For:
-{chr(10).join(['- ' + feature for feature in criteria['primary_features']])}
+Priorities to decide a deletion event:
+1. A drop in coverage in the region or drop near breakpoints for longer events
+2. Soft clipped parts near breakpoints
+3. Presence of red bars
 
-Expected Coverage Pattern: {criteria['coverage_pattern']}
-Expected Read Pair Orientation: {criteria['read_pair_orientation']}
+CRITICAL RULE: If coverage drops occur in both the sample and control, classify the event as FALSE regardless of the difference in the drop's magnitude (i.e., still False if the drop in sample is greater than that in control).
 
-FALSE POSITIVE INDICATORS:
-{chr(10).join(['- ' + indicator for indicator in criteria['false_positive_indicators']])}
-
-TRAINING EXAMPLES FOR {suspected_sv_type}:
-"""
-        
-        # Add training examples with images
-        available_examples = self.sv_type_training.get(suspected_sv_type, [])
-        if not available_examples:
-            raise ValueError(f"No training examples found for {suspected_sv_type}. Check your training data.")
-            
-        if use_all_training:
-            selected_examples = self.select_training_examples(available_examples, use_all=True)
-        else:
-            selected_examples = self.select_training_examples(available_examples, max_examples=6)
-        
-        for i, example in enumerate(selected_examples):
-            if "image_path" in example:
-                prompt_text += f"""
-TRAINING EXAMPLE {i+1}: {example.get('filename', 'N/A')}
-- Real SV: {example.get('is_real', 'Unknown')}
-- Type: {example.get('sv_type', 'Unknown')}
-- Explanation: {example.get('explanation', 'No explanation')}
-- Key features: {example.get('visual_features', {})}
----"""
-                
-                # Add the training image
-                try:
-                    base64_image = self.encode_image(example["image_path"])
-                    content_items.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "high"
-                        }
-                    })
-                except Exception as e:
-                    print(f"Warning: Could not load training image {example['image_path']}: {e}")
-
-        prompt_text += """
-
-Now analyze the TARGET image below and respond in JSON format:
-{
-    "is_real_sv": boolean,
-    "sv_type": "DEL|DUP|INV|TRA|INS|COMPLEX|UNKNOWN",
-    "confidence": float (0-1),
-    "explanation": "detailed reasoning comparing to training examples",
-    "supporting_evidence": ["list", "of", "key", "evidence"],
-    "visual_features": {
-        "coverage_pattern": "description",
-        "read_pair_orientation": "description",
-        "breakpoint_quality": "sharp|fuzzy|unclear",
-        "mapping_quality": "high|medium|low"
-    }
-}
-
-TARGET IMAGE TO ANALYZE:
-"""
-        
-        return prompt_text, content_items
+Classification:
+- True (1): Deletion signals present in sample but absent in control
+- False (0): No deletion signals, or deletion signals present in both sample and control"""
     
     def encode_image(self, image_path: str) -> str:
-        """Encode image to base64"""
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
-    
-    def analyze_sv_image(self, image_path: str, suspected_sv_type: str, use_all_training: bool = False) -> SVResult:
         """
-        Analyze SV image with training images and annotations
+        Encode image to base64 string for API transmission.
         
         Args:
-            image_path: Path to bamsnap image
-            suspected_sv_type: SV type to focus analysis on (required)
-            use_all_training: If True, use all training examples instead of limiting
+            image_path: Path to the image file
             
         Returns:
-            SVResult with analysis
+            Base64 encoded image string
         """
-        if not os.path.exists(image_path):
-            raise FileNotFoundError(f"Image not found: {image_path}")
-        
-        if not suspected_sv_type:
-            raise ValueError("SV type must be specified. Choose from: DEL, DUP, INV, TRA, INS")
-        
-        # Create prompt with training examples and images
-        prompt_text, training_content_items = self.create_sv_specific_prompt(suspected_sv_type, use_all_training)
-        
-        # Encode the target image to analyze
-        base64_image = self.encode_image(image_path)
-        
-        # Build the complete content list: prompt + training images + target image
-        content_list = [{"type": "text", "text": prompt_text}]
-        content_list.extend(training_content_items)  # Add training images
-        content_list.append({  # Add target image at the end
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{base64_image}",
-                "detail": "high"
-            }
-        })
-        
         try:
-            num_training_images = len(training_content_items)
-            print(f"Sending {num_training_images} training images + 1 target image to ChatGPT Vision...")
+            with open(image_path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
+        except Exception as e:
+            self.logger.error(f"Error encoding image {image_path}: {e}")
+            raise
+    
+    def load_training_data(self, training_dir: str) -> List[Dict]:
+        """
+        Load training images and their corresponding JSON annotations.
+        
+        Args:
+            training_dir: Directory containing training images and JSON files
             
+        Returns:
+            List of training examples with images and annotations
+        """
+        training_data = []
+        training_path = Path(training_dir)
+        
+        # Look for image files
+        image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']
+        for img_file in training_path.glob("*"):
+            if img_file.suffix.lower() in image_extensions:
+                # Look for corresponding JSON file
+                json_file = img_file.with_suffix('.json')
+                if json_file.exists():
+                    try:
+                        with open(json_file, 'r') as f:
+                            annotation = json.load(f)
+                        
+                        training_data.append({
+                            'image_path': str(img_file),
+                            'annotation': annotation,
+                            'encoded_image': self.encode_image(str(img_file))
+                        })
+                    except Exception as e:
+                        self.logger.warning(f"Error loading training data for {img_file}: {e}")
+        
+        return training_data
+    
+    def create_training_examples_prompt(self, training_data: List[Dict]) -> str:
+        """
+        Create a prompt section with training examples.
+        
+        Args:
+            training_data: List of training examples
+            
+        Returns:
+            Formatted prompt with training examples
+        """
+        examples_prompt = "\n\nTRAINING EXAMPLES:\n"
+        
+        for i, example in enumerate(training_data[:5]):  # Limit to 5 examples to avoid token limits
+            annotation = example['annotation']
+            label = annotation.get('label', 'unknown')
+            comment = annotation.get('comment', 'No comment provided')
+            
+            examples_prompt += f"""Example {i+1}:
+Classification: {label}
+Reasoning: {comment}
+
+"""
+        
+        return examples_prompt
+    
+    def _validate_single_deletion(self, image_path: str, training_data: Optional[List[Dict]] = None) -> Dict:
+        """
+        Internal method to validate a single deletion SV from a bamsnap plot.
+        
+        Args:
+            image_path: Path to the bamsnap plot image
+            training_data: Optional training data for few-shot learning
+            
+        Returns:
+            Dictionary containing classification result and reasoning
+        """
+        try:
+            # Encode the image
+            encoded_image = self.encode_image(image_path)
+            
+            # Create base prompt
+            prompt = f"""You are an expert in analyzing bamsnap IGV plots for structural variant validation.
+
+{self.deletion_rules}
+
+Please follow similar decision reasons given in training plots when making your decision and providing reasoning during your analysis.
+
+Please analyze the provided bamsnap plot and classify whether the deletion is:
+- True (1): Deletion signals present in sample but absent in control
+- False (0): No deletion signals, or deletion signals present in both sample and control
+
+Provide your analysis in the following JSON format:
+{{
+    "classification": 0 or 1,
+    "confidence": "high/medium/low",
+    "reasoning": "Detailed explanation of your decision based on the validation rules",
+    "key_features": ["list of key features observed in the plot"],
+    "sample_panel_observations": "What you observe in the sample panel",
+    "control_panel_observations": "What you observe in the control panel"
+}}"""
+            
+            # Add training examples if provided
+            if training_data:
+                training_prompt = self.create_training_examples_prompt(training_data)
+                prompt += training_prompt
+            
+            # Prepare messages for API call
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{encoded_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            # Make API call
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": content_list
-                    }
-                ],
-                max_tokens=1500,
-                temperature=0.1
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.1  # Low temperature for consistent results
             )
             
             # Parse response
-            result_text = response.choices[0].message.content
+            response_text = response.choices[0].message.content
             
-            # Extract JSON
+            # Try to extract JSON from response
             try:
-                start_idx = result_text.find('{')
-                end_idx = result_text.rfind('}') + 1
-                
-                if start_idx != -1 and end_idx != -1:
-                    json_str = result_text[start_idx:end_idx]
-                    result_data = json.loads(json_str)
+                # Look for JSON in the response
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
                 else:
-                    raise ValueError("No JSON found")
-                    
-            except (json.JSONDecodeError, ValueError):
-                # Fallback parsing
-                result_data = {
-                    "is_real_sv": "real" in result_text.lower(),
-                    "sv_type": suspected_sv_type or "UNKNOWN",
-                    "confidence": 0.5,
-                    "explanation": result_text,
-                    "supporting_evidence": [],
-                    "visual_features": {}
+                    # Fallback parsing
+                    result = {
+                        "classification": 0,
+                        "confidence": "low",
+                        "reasoning": response_text,
+                        "key_features": [],
+                        "sample_panel_observations": "",
+                        "control_panel_observations": ""
+                    }
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                result = {
+                    "classification": 0,
+                    "confidence": "low",
+                    "reasoning": response_text,
+                    "key_features": [],
+                    "sample_panel_observations": "",
+                    "control_panel_observations": ""
                 }
             
-            return SVResult(
-                is_real_sv=result_data.get("is_real_sv", False),
-                sv_type=result_data.get("sv_type", "UNKNOWN"),
-                confidence=result_data.get("confidence", 0.5),
-                explanation=result_data.get("explanation", ""),
-                supporting_evidence=result_data.get("supporting_evidence", []),
-                visual_features=result_data.get("visual_features", {})
-            )
+            return result
             
         except Exception as e:
-            raise Exception(f"Error analyzing image {image_path}: {str(e)}")
+            self.logger.error(f"Error validating deletion for {image_path}: {e}")
+            return {
+                "classification": 0,
+                "confidence": "low",
+                "reasoning": f"Error during analysis: {str(e)}",
+                "key_features": [],
+                "sample_panel_observations": "",
+                "control_panel_observations": ""
+            }
     
-    def analyze_batch_folder(self, images_dir: str, output_dir: str = None, suspected_sv_type: str = None, use_all_training: bool = False) -> List[Dict]:
+    def save_results_csv(self, results: List[Dict], csv_file: str) -> None:
         """
-        Analyze all images in a folder (batch processing)
+        Save validation results to CSV format.
         
         Args:
-            images_dir: Directory containing bamsnap images to analyze
-            output_dir: Directory to save individual result files (optional)
-            suspected_sv_type: SV type focus for all images (required)
-            use_all_training: If True, use all training examples
+            results: List of validation results
+            csv_file: Path to output CSV file
+        """
+        try:
+            with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                writer.writerow([
+                    'file_path', 
+                    'classification', 
+                    'reasoning'
+                ])
+                
+                # Write data rows
+                for result in results:
+                    writer.writerow([
+                        result.get('image_path', ''),
+                        result.get('classification', 0),
+                        result.get('reasoning', '').replace('\n', ' ').replace('\r', ' ')  # Clean line breaks
+                    ])
+                    
+            self.logger.info(f"CSV results saved to {csv_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving CSV file {csv_file}: {e}")
+            raise
+    
+    def validate_deletions(self, image_dir: str, 
+                          output_file: str = None,
+                          csv_output_file: str = None,
+                          training_dir: str = None, 
+                          file_patterns: List[str] = None,
+                          parallel_processing: bool = False,
+                          max_workers: int = 3) -> List[Dict]:
+        """
+        Validate multiple bamsnap plots for deletion SVs in a directory.
+        
+        Args:
+            image_dir: Directory containing bamsnap plot images
+            output_file: Optional output file to save results (JSON format)
+            csv_output_file: Optional CSV file to save simplified results (file_path, classification, reasoning)
+            training_dir: Optional directory with training data
+            file_patterns: Optional list of file patterns to match (e.g., ['*deletion*', '*del*'])
+            parallel_processing: Whether to process images in parallel (be careful with API limits)
+            max_workers: Maximum number of parallel workers
             
         Returns:
-            List of analysis results
+            List of validation results
         """
-        if not suspected_sv_type:
-            raise ValueError("SV type must be specified for batch analysis. Choose from: DEL, DUP, INV, TRA, INS")
-        images_path = Path(images_dir)
-        if not images_path.exists():
-            raise FileNotFoundError(f"Images directory not found: {images_dir}")
-        
-        # Create output directory if specified
-        if output_dir:
-            output_path = Path(output_dir)
-            output_path.mkdir(exist_ok=True)
-        
-        # Supported image formats
-        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif'}
-        
-        # Find all images
-        image_files = []
-        for ext in image_extensions:
-            image_files.extend(images_path.glob(f"*{ext}"))
-            image_files.extend(images_path.glob(f"*{ext.upper()}"))
-        
-        if not image_files:
-            print(f"No image files found in {images_dir}")
-            return []
-        
-        print(f"Found {len(image_files)} images to analyze")
-        if use_all_training:
-            print("Using ALL training examples for maximum accuracy")
+        # Load training data if provided
+        training_data = []
+        if training_dir:
+            training_data = self.load_training_data(training_dir)
+            self.logger.info(f"Loaded {len(training_data)} training examples")
         
         results = []
+        image_path = Path(image_dir)
         
-        for i, img_file in enumerate(image_files, 1):
-            print(f"\nAnalyzing {i}/{len(image_files)}: {img_file.name}")
-            
-            try:
-                # Analyze the image
-                result = self.analyze_sv_image(str(img_file), suspected_sv_type, use_all_training)
-                
-                # Create result dictionary
-                result_dict = {
-                    "filename": img_file.name,
-                    "filepath": str(img_file),
-                    "is_real_sv": result.is_real_sv,
-                    "sv_type": result.sv_type,
-                    "confidence": result.confidence,
-                    "explanation": result.explanation,
-                    "supporting_evidence": result.supporting_evidence,
-                    "visual_features": result.visual_features,
-                    "analysis_focus": suspected_sv_type,
-                    "used_all_training": use_all_training
-                }
-                
-                results.append(result_dict)
-                
-                # Print summary
-                status = "REAL SV" if result.is_real_sv else "FALSE POSITIVE"
-                print(f"  Result: {status} - {result.sv_type} (confidence: {result.confidence:.2f})")
-                
-                # Save individual result file if output directory specified
-                if output_dir:
-                    result_filename = f"{img_file.stem}_result.json"
-                    result_path = output_path / result_filename
-                    with open(result_path, 'w') as f:
-                        json.dump(result_dict, f, indent=2)
-                    print(f"  Saved: {result_path}")
-                
-            except Exception as e:
-                print(f"  Error analyzing {img_file.name}: {str(e)}")
-                error_result = {
-                    "filename": img_file.name,
-                    "filepath": str(img_file),
-                    "error": str(e),
-                    "analysis_focus": suspected_sv_type,
-                    "used_all_training": use_all_training
-                }
-                results.append(error_result)
+        # Find all images to process
+        image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']
+        images_to_process = []
         
-        # Print batch summary
-        print(f"\n" + "="*60)
-        print("BATCH ANALYSIS SUMMARY")
-        print("="*60)
+        for img_file in image_path.glob("*"):
+            if img_file.suffix.lower() in image_extensions:
+                # Check file patterns if specified
+                if file_patterns:
+                    if any(img_file.match(pattern) for pattern in file_patterns):
+                        images_to_process.append(img_file)
+                else:
+                    images_to_process.append(img_file)
         
-        successful_results = [r for r in results if "error" not in r]
-        error_count = len(results) - len(successful_results)
+        self.logger.info(f"Found {len(images_to_process)} images to process")
         
-        print(f"Total images processed: {len(image_files)}")
-        print(f"Successful analyses: {len(successful_results)}")
-        print(f"Errors: {error_count}")
-        
-        if successful_results:
-            real_svs = sum(1 for r in successful_results if r.get("is_real_sv", False))
-            false_positives = len(successful_results) - real_svs
+        if parallel_processing:
+            # Parallel processing (use with caution due to API rate limits)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             
-            print(f"\nClassification Results:")
-            print(f"  Real SVs: {real_svs}")
-            print(f"  False Positives: {false_positives}")
+            def process_image(img_file):
+                self.logger.info(f"Processing {img_file.name}")
+                result = self._validate_single_deletion(
+                    str(img_file), 
+                    training_data if training_data else None
+                )
+                result['image_file'] = img_file.name
+                result['image_path'] = str(img_file)
+                return result
             
-            # SV type breakdown
-            sv_types = {}
-            for r in successful_results:
-                if r.get("is_real_sv", False):
-                    sv_type = r.get("sv_type", "UNKNOWN")
-                    sv_types[sv_type] = sv_types.get(sv_type, 0) + 1
-            
-            if sv_types:
-                print(f"\nSV Type Breakdown (Real SVs only):")
-                for sv_type, count in sorted(sv_types.items()):
-                    print(f"  {sv_type}: {count}")
-            
-            # Confidence statistics
-            confidences = [r.get("confidence", 0) for r in successful_results]
-            if confidences:
-                avg_confidence = sum(confidences) / len(confidences)
-                high_conf = sum(1 for c in confidences if c >= 0.8)
-                low_conf = sum(1 for c in confidences if c < 0.5)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_image = {executor.submit(process_image, img): img for img in images_to_process}
                 
-                print(f"\nConfidence Statistics:")
-                print(f"  Average confidence: {avg_confidence:.2f}")
-                print(f"  High confidence (≥0.8): {high_conf}")
-                print(f"  Low confidence (<0.5): {low_conf}")
+                for future in as_completed(future_to_image):
+                    img = future_to_image[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        self.logger.info(f"Completed {img.name}: {result['classification']}")
+                    except Exception as e:
+                        self.logger.error(f"Error processing {img.name}: {e}")
+                        results.append({
+                            'image_file': img.name,
+                            'image_path': str(img),
+                            'classification': 0,
+                            'confidence': 'low',
+                            'reasoning': f'Processing error: {str(e)}',
+                            'key_features': [],
+                            'sample_panel_observations': '',
+                            'control_panel_observations': ''
+                        })
+        else:
+            # Sequential processing (recommended for API stability)
+            for img_file in images_to_process:
+                self.logger.info(f"Processing {img_file.name}")
+                
+                result = self._validate_single_deletion(
+                    str(img_file), 
+                    training_data if training_data else None
+                )
+                
+                result['image_file'] = img_file.name
+                result['image_path'] = str(img_file)
+                results.append(result)
+                
+                self.logger.info(f"Completed {img_file.name}: Classification={result['classification']}, Confidence={result['confidence']}")
+        
+        # Save results if output files specified
+        if output_file:
+            with open(output_file, 'w') as f:
+                json.dump(results, f, indent=2)
+            self.logger.info(f"JSON results saved to {output_file}")
+        
+        if csv_output_file:
+            self.save_results_csv(results, csv_output_file)
+        
+        # Print summary
+        true_positives = sum(1 for r in results if r['classification'] == 1)
+        false_positives = sum(1 for r in results if r['classification'] == 0)
+        high_confidence = sum(1 for r in results if r['confidence'] == 'high')
+        
+        self.logger.info(f"""BATCH PROCESSING SUMMARY:
+Total images processed: {len(results)}
+True positives (real deletions): {true_positives}
+False positives: {false_positives}
+High confidence predictions: {high_confidence}""")
         
         return results
-
-def main():
-    """Command line interface"""
-    parser = argparse.ArgumentParser(description="SV Type-Specific Analysis")
-    parser.add_argument("--image", help="Single image to analyze")
-    parser.add_argument("--batch", help="Directory containing multiple images to analyze")
-    parser.add_argument("--training", required=True, help="Training data directory")
-    parser.add_argument("--sv-type", choices=["DEL", "DUP", "INV", "TRA", "INS"], 
-                       required=True, help="SV type to focus analysis on (required)")
-    parser.add_argument("--output", help="Output file for results")
-    parser.add_argument("--output-dir", help="Directory to save individual result files (for batch)")
-    parser.add_argument("--model", default="gpt-4o", help="OpenAI model to use")
-    parser.add_argument("--use-all-training", action="store_true",
-                       help="Use ALL training examples instead of limiting (higher cost but potentially better accuracy)")
     
-    args = parser.parse_args()
-    
-    # Initialize analyzer (no API key needed - uses global variable)
-    analyzer = SVTypeSpecificAnalyzer(args.model)
-    
-    # Load training data
-    print(f"Loading SV-type-specific training data from: {args.training}")
-    analyzer.load_sv_type_training(args.training)
-    
-    if args.use_all_training:
-        print("WARNING: Using ALL training examples. This will be more expensive but potentially more accurate.")
-    
-    print(f"Analyzing for SV type: {args.sv_type}")
-    
-    # Single image analysis
-    if args.image:
-        print(f"Analyzing image: {args.image}")
-        result = analyzer.analyze_sv_image(args.image, args.sv_type, args.use_all_training)
+    def generate_report(self, results: List[Dict], report_file: str = None) -> str:
+        """
+        Generate a summary statistics report from batch validation results.
         
-        print(f"\nAnalysis Results (focused on {args.sv_type}):")
-        print(f"Real SV: {result.is_real_sv}")
-        print(f"SV Type: {result.sv_type}")
-        print(f"Confidence: {result.confidence:.2f}")
-        print(f"Explanation: {result.explanation}")
-        print(f"Visual Features: {result.visual_features}")
-        
-        # Save single result
-        if args.output:
-            result_dict = {
-                "filename": os.path.basename(args.image),
-                "focus": args.sv_type,
-                "is_real_sv": result.is_real_sv,
-                "sv_type": result.sv_type,
-                "confidence": result.confidence,
-                "explanation": result.explanation,
-                "supporting_evidence": result.supporting_evidence,
-                "visual_features": result.visual_features,
-                "used_all_training": args.use_all_training
-            }
+        Args:
+            results: List of validation results from validate_deletions()
+            report_file: Optional file to save the report
             
-            with open(args.output, 'w') as f:
-                json.dump(result_dict, f, indent=2)
-            print(f"Results saved to: {args.output}")
-    
-    # Batch analysis
-    elif args.batch:
-        print(f"Running batch analysis on folder: {args.batch}")
-        results = analyzer.analyze_batch_folder(
-            args.batch, 
-            args.output_dir, 
-            args.sv_type, 
-            args.use_all_training
-        )
+        Returns:
+            Report as string
+        """
+        if not results:
+            return "No results to generate report from."
         
-        # Save batch summary
-        if args.output:
-            with open(args.output, 'w') as f:
-                json.dump(results, f, indent=2)
-            print(f"\nBatch summary saved to: {args.output}")
+        # Calculate statistics
+        total = len(results)
+        true_positives = sum(1 for r in results if r['classification'] == 1)
+        false_positives = sum(1 for r in results if r['classification'] == 0)
+        
+        confidence_counts = {
+            'high': sum(1 for r in results if r['confidence'] == 'high'),
+            'medium': sum(1 for r in results if r['confidence'] == 'medium'),
+            'low': sum(1 for r in results if r['confidence'] == 'low')
+        }
+        
+        # Generate summary report
+        report = f"""# Bamsnap Deletion SV Validation Report
+
+## Summary Statistics
+- **Total Images Processed**: {total}
+- **True Positives (Real Deletions)**: {true_positives} ({true_positives/total*100:.1f}%)
+- **False Positives**: {false_positives} ({false_positives/total*100:.1f}%)
+
+## Confidence Distribution
+- **High Confidence**: {confidence_counts['high']} ({confidence_counts['high']/total*100:.1f}%)
+- **Medium Confidence**: {confidence_counts['medium']} ({confidence_counts['medium']/total*100:.1f}%)
+- **Low Confidence**: {confidence_counts['low']} ({confidence_counts['low']/total*100:.1f}%)"""
+        
+        if report_file:
+            with open(report_file, 'w') as f:
+                f.write(report)
+            self.logger.info(f"Report saved to {report_file}")
+        
+        return report
+
+# Example usage and testing
+def main():
+    """
+    Example usage of the BamsnapSVValidator for batch processing
+    """
+    # Set up logging
+    logging.basicConfig(level=logging.INFO)
     
-    else:
-        print("Please specify either --image or --batch")
-        parser.print_help()
+    # Initialize validator (you'll need to provide your OpenAI API key)
+    api_key = os.getenv("OPENAI_API_KEY")  # Set this environment variable
+    if not api_key:
+        print("Please set your OPENAI_API_KEY environment variable")
+        return
+    
+    validator = BamsnapSVValidator(api_key)
+    
+    # Example 1: Basic batch validation with both JSON and CSV output
+    print("=== Example 1: Basic Batch Validation with CSV Output ===")
+    results = validator.validate_deletions(
+        image_dir="path/to/test/images",
+        output_file="deletion_validation_results.json",
+        csv_output_file="deletion_validation_results.csv"
+    )
+    print(f"Processed {len(results)} images")
+    
+    # Example 2: Batch validation with training data and both output formats
+    print("\n=== Example 2: Batch Validation with Training Data ===")
+    results = validator.validate_deletions(
+        image_dir="path/to/test/images",
+        training_dir="path/to/training/data",
+        output_file="deletion_validation_with_training.json",
+        csv_output_file="deletion_validation_with_training.csv"
+    )
+    
+    # Example 3: Batch validation with file patterns and CSV output
+    print("\n=== Example 3: Batch Validation with File Patterns ===")
+    results = validator.validate_deletions(
+        image_dir="path/to/test/images",
+        file_patterns=["*deletion*", "*del*"],  # Only process files matching these patterns
+        output_file="filtered_deletion_results.json",
+        csv_output_file="filtered_deletion_results.csv"
+    )
+    
+    # Example 4: Generate detailed report
+    print("\n=== Example 4: Generate Report ===")
+    report = validator.generate_report(results, "deletion_validation_report.md")
+    print("Report generated!")
+    
+    # Example 5: Parallel processing with CSV output (use carefully with API limits)
+    print("\n=== Example 5: Parallel Processing ===")
+    results = validator.validate_deletions(
+        image_dir="path/to/test/images",
+        parallel_processing=True,
+        max_workers=2,  # Conservative number to avoid API limits
+        output_file="parallel_deletion_results.json",
+        csv_output_file="parallel_deletion_results.csv"
+    )
+    
+    print("Batch processing examples completed!")
+    print("\nMain methods:")
+    print("- validator.validate_deletions() - Main batch processing method")
+    print("- validator.generate_report() - Generate detailed analysis report")
+    print("- validator.load_training_data() - Load training examples")
 
 if __name__ == "__main__":
     main()
