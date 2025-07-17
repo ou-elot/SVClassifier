@@ -1,0 +1,184 @@
+[
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel but not in the control panel. Soft clipped parts are present near the breakpoints in the sample but not in the control. Additionally, there are numerous red bars flanking the breakpoints in the sample, indicating reads with large insert sizes, which are absent in the control.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Numerous red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant coverage drop, presence of soft clipped parts near breakpoints, and numerous red bars indicating large insert size reads.",
+    "control_panel_observations": "No significant coverage drop, absence of soft clipped parts near breakpoints, and lack of red bars.",
+    "image_file": "p5353bp1Cyce_vs_p53_D_jasmine_177_bamsnap.png",
+    "image_path": "testingData\\deletion\\p5353bp1Cyce_vs_p53_D_jasmine_177_bamsnap.png"
+  },
+  {
+    "classification": 0,
+    "confidence": "high",
+    "reasoning": "There is a coverage drop in both the sample and control panels, which according to the critical rule, classifies the event as false. Although there are red bars indicating large insert size reads in the sample, the presence of coverage drops in both panels overrides other signals.",
+    "key_features": [
+      "Coverage drop in both sample and control",
+      "Red bars in sample panel",
+      "Soft clipping near breakpoints in both panels"
+    ],
+    "sample_panel_observations": "Coverage drop observed, presence of red bars, soft clipping near breakpoints.",
+    "control_panel_observations": "Coverage drop observed, some soft clipping near breakpoints.",
+    "image_file": "p5353bp1Cyce_vs_p53_D_jasmine_418_bamsnap.png",
+    "image_path": "testingData\\deletion\\p5353bp1Cyce_vs_p53_D_jasmine_418_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel but not in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are numerous red bars flanking the breakpoints in the sample, indicating reads with large insert sizes, which are not present in the control.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Numerous red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars indicating large insert size reads.",
+    "control_panel_observations": "No significant coverage drop, absence of soft clipped parts near breakpoints, and fewer red bars.",
+    "image_file": "p5353bp1Cyce_vs_p53_D_jasmine_435_bamsnap.png",
+    "image_path": "testingData\\deletion\\p5353bp1Cyce_vs_p53_D_jasmine_435_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are numerous red bars flanking the breakpoints in the sample, indicating reads with large insert sizes, which are absent in the control.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Numerous red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant coverage drop, presence of soft clipped parts near breakpoints, and numerous red bars indicating large insert size reads.",
+    "control_panel_observations": "No significant coverage drop, absence of soft clipped parts near breakpoints, and fewer red bars.",
+    "image_file": "p5353bp1Cyce_vs_p53_D_jasmine_462_bamsnap.png",
+    "image_path": "testingData\\deletion\\p5353bp1Cyce_vs_p53_D_jasmine_462_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Significant coverage drop in sample but not in control",
+      "Soft clipped parts near breakpoints in sample but not in control",
+      "More red bars flanking breakpoints in sample compared to control"
+    ],
+    "sample_panel_observations": "Significant coverage drop, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant coverage drop, absence of soft clipped parts near breakpoints, and fewer red bars.",
+    "image_file": "p53PolqCyce_vs_p53_jasmine_145_bamsnap.png",
+    "image_path": "testingData\\deletion\\p53PolqCyce_vs_p53_jasmine_145_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "More red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "p53PolqCyce_vs_p53_jasmine_220_bamsnap.png",
+    "image_path": "testingData\\deletion\\p53PolqCyce_vs_p53_jasmine_220_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are numerous red bars flanking the breakpoints in the sample, indicating reads with large insert sizes, which are absent in the control.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Presence of red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant coverage drop, absence of soft clipped parts near breakpoints, and lack of red bars flanking the breakpoints.",
+    "image_file": "p53PolqCyce_vs_p53_jasmine_269_bamsnap.png",
+    "image_path": "testingData\\deletion\\p53PolqCyce_vs_p53_jasmine_269_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a strong drop in coverage in the sample panel but not in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Strong coverage drop in sample",
+      "Soft clipped parts near breakpoints in sample",
+      "More red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars indicating large insert sizes.",
+    "control_panel_observations": "No significant coverage drop, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "p53PolqCyce_vs_p53_jasmine_524_bamsnap.png",
+    "image_path": "testingData\\deletion\\p53PolqCyce_vs_p53_jasmine_524_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "More red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the deletion region.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "RPEp53brca1_jasmine_124_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_124_bamsnap.png"
+  },
+  {
+    "classification": 0,
+    "confidence": "high",
+    "reasoning": "There is a coverage drop in both the sample and control panels. Although there are red bars and soft clipped parts in the sample, the presence of a coverage drop in both panels classifies this as a false positive according to the critical rule.",
+    "key_features": [
+      "Coverage drop in both sample and control",
+      "Red bars present in both sample and control",
+      "Soft clipped parts near breakpoints in sample"
+    ],
+    "sample_panel_observations": "Coverage drop observed, presence of red bars and soft clipped parts near breakpoints.",
+    "control_panel_observations": "Coverage drop observed, presence of red bars.",
+    "image_file": "RPEp53brca1_jasmine_368_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_368_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "More red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant coverage drop, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "RPEp53brca1_jasmine_49_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_49_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are visible near the breakpoints in the sample but not in the control. Additionally, there are red bars flanking the deletion region in the sample, indicating reads with large insert sizes, which are absent in the control.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Presence of red bars in sample panel"
+    ],
+    "sample_panel_observations": "The sample panel shows a clear drop in coverage, soft clipped parts near the breakpoints, and red bars indicating large insert size reads.",
+    "control_panel_observations": "The control panel does not show a significant drop in coverage, lacks soft clipped parts near the breakpoints, and does not have red bars flanking the region.",
+    "image_file": "RPEp53brca1_jasmine_60_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_60_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Soft clipped parts are observed near the breakpoints in the sample but not in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating reads with large insert sizes.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "More red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "RPEp53brca1_jasmine_90_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_90_bamsnap.png"
+  }
+]
