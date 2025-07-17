@@ -1,0 +1,114 @@
+[
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Additionally, there are more soft clipped parts near the breakpoints in the sample compared to the control. The presence of red bars flanking the deletion region in the sample but not in the control further supports the classification of a true deletion event.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Red bars flanking the deletion region in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and red bars flanking the deletion region.",
+    "control_panel_observations": "No significant coverage drop, fewer soft clipped parts, and absence of red bars flanking the deletion region.",
+    "image_file": "p53PolqCyce_vs_p53_jasmine_145_bamsnap.png",
+    "image_path": "testingData\\deletion\\p53PolqCyce_vs_p53_jasmine_145_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a strong drop in coverage in the sample panel but not in the control panel. The sample panel shows more soft clipped parts near the breakpoints and a significant presence of red bars flanking the deletion region, which are absent in the control panel.",
+    "key_features": [
+      "Strong drop in coverage in sample panel",
+      "Soft clipped parts near breakpoints in sample panel",
+      "Presence of red bars in sample panel"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, numerous soft clipped reads near breakpoints, and many red bars indicating large insert sizes.",
+    "control_panel_observations": "Stable coverage with no significant drop, fewer soft clipped reads, and absence of red bars.",
+    "image_file": "RPEp53brca1_jasmine_1132_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_1132_bamsnap.png"
+  },
+  {
+    "classification": 0,
+    "confidence": "high",
+    "reasoning": "There is a coverage drop in both the sample and control panels. Although the drop is more pronounced in the sample, the critical rule states that if coverage drops occur in both panels, the event is classified as false. Additionally, there are soft clipped parts and red bars present in both panels, indicating similar structural variant signals.",
+    "key_features": [
+      "Coverage drop in both sample and control",
+      "Soft clipped parts near breakpoints in both panels",
+      "Red bars present in both panels"
+    ],
+    "sample_panel_observations": "Coverage drop observed, presence of soft clipped parts and red bars near breakpoints.",
+    "control_panel_observations": "Coverage drop observed, presence of soft clipped parts and red bars near breakpoints.",
+    "image_file": "RPEp53brca1_jasmine_124_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_124_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Additionally, there are more soft clipped parts near the breakpoints in the sample compared to the control. The presence of red bars flanking the deletion region in the sample but not in the control further supports the classification of a true deletion event.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Red bars flanking the deletion region in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and red bars flanking the deletion region.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and absence of red bars flanking the deletion region.",
+    "image_file": "RPEp53brca1_jasmine_1537_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_1537_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a strong drop in coverage in the sample panel but not in the control panel. The sample panel shows more soft clipped parts near the breakpoints, and there are many red bars flanking the breakpoints in the sample but not in the control.",
+    "key_features": [
+      "Strong coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Presence of red bars in sample panel"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, numerous soft clipped parts near breakpoints, and many red bars indicating large insert size reads.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "RPEp53brca1_jasmine_278_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_278_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Additionally, there are more soft clipped parts near the breakpoints in the sample compared to the control. The presence of numerous red bars flanking the breakpoints in the sample but not in the control further supports the classification of a true deletion event.",
+    "key_features": [
+      "Significant drop in coverage in the sample panel",
+      "More soft clipped parts near breakpoints in the sample",
+      "Numerous red bars flanking breakpoints in the sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, presence of soft clipped parts near breakpoints, and numerous red bars flanking the breakpoints.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped parts, and fewer red bars compared to the sample.",
+    "image_file": "RPEp53brca1_jasmine_324_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_324_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a strong drop in coverage in the sample panel but not in the control panel. The sample panel shows significant soft clipping near the breakpoints, which is absent in the control. Additionally, there are more red bars flanking the breakpoints in the sample compared to the control, indicating large insert size reads supporting the deletion.",
+    "key_features": [
+      "Strong drop in coverage in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Presence of red bars flanking breakpoints in sample"
+    ],
+    "sample_panel_observations": "Significant drop in coverage, numerous soft clipped reads near breakpoints, and many red bars indicating large insert size reads.",
+    "control_panel_observations": "No significant drop in coverage, fewer soft clipped reads, and fewer red bars.",
+    "image_file": "RPEp53brca1_jasmine_368_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_368_bamsnap.png"
+  },
+  {
+    "classification": 1,
+    "confidence": "high",
+    "reasoning": "There is a significant drop in coverage in the sample panel that is not present in the control panel. Additionally, there are more soft clipped parts near the breakpoints in the sample compared to the control. The presence of red bars flanking the deletion region in the sample but not in the control further supports the classification of a true deletion event.",
+    "key_features": [
+      "Significant coverage drop in sample panel",
+      "Soft clipped parts near breakpoints in sample",
+      "Red bars flanking the deletion region in sample"
+    ],
+    "sample_panel_observations": "The sample panel shows a strong drop in coverage, numerous soft clipped parts near the breakpoints, and red bars indicating large insert size reads flanking the deletion region.",
+    "control_panel_observations": "The control panel maintains consistent coverage with fewer soft clipped parts and lacks the red bars seen in the sample.",
+    "image_file": "RPEp53brca1_jasmine_95_bamsnap.png",
+    "image_path": "testingData\\deletion\\RPEp53brca1_jasmine_95_bamsnap.png"
+  }
+]
