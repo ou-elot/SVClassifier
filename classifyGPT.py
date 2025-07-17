@@ -7,6 +7,7 @@ import argparse
 from typing import Dict, List, Tuple, Optional
 import logging
 from pathlib import Path
+from datetime import datetime
 
 class BamsnapSVValidator:
     """
@@ -451,12 +452,10 @@ def main():
     parser.add_argument("image", help="Directory containing bamsnap plot images to analyze")
     parser.add_argument("-t", "--train", default="trainingData/deletion", 
                        help="Training data directory (default: trainingData/deletion)")
-    parser.add_argument("-o", "--output", default="deletion_results.json", 
-                       help="JSON output file (default: deletion_results.json)")
-    parser.add_argument("-c", "--csv", default="deletion_results.csv", 
-                       help="CSV output file (default: deletion_results.csv)")
-    parser.add_argument("-r", "--report", default="deletion_summary_report.md", 
-                       help="Summary report file (default: deletion_summary_report.md)")
+    parser.add_argument("-o", "--output-dir", default=None, 
+                       help="Output directory for results (default: auto-generated with timestamp)")
+    parser.add_argument("--output-prefix", default="deletion_results", 
+                       help="Prefix for output files (default: deletion_results)")
     parser.add_argument("-m", "--model", choices=["gpt-4o", "gpt-4o-mini"], default="gpt-4o",
                        help="OpenAI model to use (default: gpt-4o)")
     parser.add_argument("-p", "--parallel", action="store_true", 
@@ -482,18 +481,34 @@ def main():
     
     validator = BamsnapSVValidator(api_key, model=args.model)
     
+    # Create output directory with timestamp if not specified
+    if args.output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path(f"results_{timestamp}")
+    else:
+        output_dir = Path(args.output_dir)
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate output file paths
+    output_file = output_dir / f"{args.output_prefix}.json"
+    csv_file = output_dir / f"{args.output_prefix}.csv"
+    report_file = output_dir / f"{args.output_prefix}_summary.md"
+    
     print(f"=== Processing Deletion SVs ===")
     print(f"Model: {args.model}")
     print(f"Image directory: {args.image}")
     print(f"Training directory: {args.train if not args.no_training else 'None (disabled)'}")
+    print(f"Output directory: {output_dir}")
     print(f"Parallel processing: {args.parallel}")
     
     # Process deletions
     results = validator.validate_deletions(
         image_dir=args.image,
         training_dir=args.train if not args.no_training else None,
-        output_file=args.output,
-        csv_output_file=args.csv,
+        output_file=str(output_file),
+        csv_output_file=str(csv_file),
         file_patterns=args.patterns,
         parallel_processing=args.parallel,
         max_workers=args.workers
@@ -507,7 +522,7 @@ def main():
     
     # Generate summary report
     print(f"\n=== Generating Summary Report ===")
-    report = validator.generate_report(results, args.report)
+    report = validator.generate_report(results, str(report_file))
     print("Summary report generated!")
     
     # Print quick stats to console
@@ -520,10 +535,10 @@ def main():
     print(f"False positives: {false_positives}")
     print(f"High confidence: {high_confidence}/{len(results)} ({high_confidence/len(results)*100:.1f}%)")
     
-    print(f"\n=== Output Files ===")
-    print(f"JSON results: {args.output}")
-    print(f"CSV results: {args.csv}")
-    print(f"Summary report: {args.report}")
+    print(f"\n=== Output Files Created in: {output_dir} ===")
+    print(f"JSON results: {output_file.name}")
+    print(f"CSV results: {csv_file.name}")
+    print(f"Summary report: {report_file.name}")
     
     return 0
 
