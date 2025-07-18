@@ -27,40 +27,26 @@ class SplitBamsnapSVValidator:
         self.model = model
         self.logger = logging.getLogger(__name__)
         
-        # SV validation rules for single panels
-        self.panel_analysis_rules = """Panel Analysis Rules for Deletions:
+        # SV validation rules for deletions (same as original)
+        self.deletion_rules = """SV Validation Rules for Deletions:
+        
+Vertical dashed lines mark the candidate deletion breakpoints. The top panel shows the sample and the bottom panel the control. Within each panel, aligned reads occupy the upper track and coverage is plotted below. Deletions are labeled as a true event (1) if signals are present in the sample panel but absent in the control.
 
-Analyze this single bamsnap panel for deletion signals:
+How reads appear in a Bamsnap plot:
+* Red bars in or flanking the deletion region: reads with insert size > 500bp, evidence of potential deletion
+* Soft clipped parts (little colored stubs at the end of a read's grey alignment block): the part of the read that does not align to the reference genome, but the unaligned portion is still retained in the read data; this is common in structural variant detection and can indicate breakpoints or mismatches
+* Gray alignment bar: the portion of each read that actually lines up to the reference sequence.
 
-Key Features to Identify:
-* Coverage drops: Significant reduction in coverage depth in the candidate region
-* Red bars: Reads with insert size > 500bp (evidence of potential deletion)
-* Soft clipped parts: Colored stubs at read ends indicating unaligned portions
-* Gray alignment bars: Normal aligned portions of reads
+Priorities to decide a deletion event:
+1. A drop in coverage in the region or drop near breakpoints for longer events
+2. Soft clipped parts near breakpoints
+3. Presence of red bars
 
-Look for:
-1. Clear coverage reduction in the candidate deletion region
-2. Presence of red bars flanking or within the deletion region
-3. Soft clipping at potential breakpoints
-4. Overall disruption of normal read alignment patterns
+CRITICAL RULE: If coverage drops occur in both the sample and control, classify the event as FALSE regardless of the difference in the drop's magnitude (i.e., still False if the drop in sample is greater than that in control).
 
-Classify the panel as:
-- HAS_DELETION: Clear deletion signals present
-- NO_DELETION: No convincing deletion signals
-- UNCLEAR: Ambiguous or borderline evidence"""
-
-        # Comparison rules
-        self.comparison_rules = """CRITICAL COMPARISON RULE:
-
-A true deletion event requires:
-- SAMPLE panel shows deletion signals (HAS_DELETION)
-- CONTROL panel shows no deletion signals (NO_DELETION)
-
-Classification Logic:
-- True (1): SAMPLE = HAS_DELETION AND CONTROL = NO_DELETION
-- False (0): Any other combination
-
-If both panels show deletion signals OR both show no deletion signals, classify as FALSE."""
+Classification:
+- True (1): Deletion signals present in sample but absent in control
+- False (0): No deletion signals, or deletion signals present in both sample and control"""
 
     def encode_image(self, image_path: str) -> str:
         """
@@ -81,10 +67,10 @@ If both panels show deletion signals OR both show no deletion signals, classify 
 
     def load_training_data(self, training_path: str) -> List[Dict]:
         """
-        Load training image pairs and their corresponding JSON annotations.
+        Load training image pairs and their corresponding JSON annotations from the specified path.
         
         Args:
-            training_path: Path to training directory with sample/control pairs
+            training_path: Full path to training directory (e.g., "trainingData/deletion")
             
         Returns:
             List of training examples with sample/control images and annotations
@@ -97,6 +83,7 @@ If both panels show deletion signals OR both show no deletion signals, classify 
             return training_data
 
         # Look for JSON files first, then find corresponding image pairs
+        image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']
         for json_file in training_dir.glob("*.json"):
             try:
                 with open(json_file, 'r') as f:
@@ -104,25 +91,46 @@ If both panels show deletion signals OR both show no deletion signals, classify 
                 
                 base_name = json_file.stem
                 
-                # Look for sample and control images
-                sample_patterns = [f"{base_name}_sample.*", f"{base_name}.sample.*", f"sample_{base_name}.*"]
-                control_patterns = [f"{base_name}_control.*", f"{base_name}.control.*", f"control_{base_name}.*"]
-                
+                # Look for sample and control images with various naming patterns
                 sample_file = None
                 control_file = None
                 
+                # Try different naming patterns for sample
+                sample_patterns = [
+                    f"{base_name}_sample",
+                    f"{base_name}.sample", 
+                    f"sample_{base_name}",
+                    f"{base_name}_Sample",
+                    f"Sample_{base_name}"
+                ]
+                
+                # Try different naming patterns for control
+                control_patterns = [
+                    f"{base_name}_control",
+                    f"{base_name}.control",
+                    f"control_{base_name}",
+                    f"{base_name}_Control",
+                    f"Control_{base_name}"
+                ]
+                
                 # Find sample file
                 for pattern in sample_patterns:
-                    matches = list(training_dir.glob(pattern))
-                    if matches:
-                        sample_file = matches[0]
+                    for ext in image_extensions:
+                        candidate = training_dir / f"{pattern}{ext}"
+                        if candidate.exists():
+                            sample_file = candidate
+                            break
+                    if sample_file:
                         break
                 
                 # Find control file  
                 for pattern in control_patterns:
-                    matches = list(training_dir.glob(pattern))
-                    if matches:
-                        control_file = matches[0]
+                    for ext in image_extensions:
+                        candidate = training_dir / f"{pattern}{ext}"
+                        if candidate.exists():
+                            control_file = candidate
+                            break
+                    if control_file:
                         break
                 
                 if sample_file and control_file:
@@ -134,7 +142,12 @@ If both panels show deletion signals OR both show no deletion signals, classify 
                         'encoded_control': self.encode_image(str(control_file))
                     })
                 else:
-                    self.logger.warning(f"Could not find sample/control pair for {json_file}")
+                    missing = []
+                    if not sample_file:
+                        missing.append("sample")
+                    if not control_file:
+                        missing.append("control")
+                    self.logger.warning(f"Could not find {'/'.join(missing)} image(s) for {json_file.name}")
                     
             except Exception as e:
                 self.logger.warning(f"Error loading training data for {json_file}: {e}")
@@ -154,53 +167,169 @@ If both panels show deletion signals OR both show no deletion signals, classify 
         """
         examples_prompt = "\n\nTRAINING EXAMPLES:\n"
         
-        for i, example in enumerate(training_data[:3]):  # Limit to 3 examples to avoid token limits
+        for i, example in enumerate(training_data[:5]):  # Limit to 5 examples to avoid token limits
             annotation = example['annotation']
             label = annotation.get('label', 'unknown')
-            sample_analysis = annotation.get('sample_analysis', 'No sample analysis provided')
-            control_analysis = annotation.get('control_analysis', 'No control analysis provided')
-            final_reasoning = annotation.get('final_reasoning', 'No reasoning provided')
+            comment = annotation.get('comment', 'No comment provided')
             
             examples_prompt += f"""Example {i+1}:
-Sample Analysis: {sample_analysis}
-Control Analysis: {control_analysis}
-Final Classification: {label}
-Final Reasoning: {final_reasoning}
+Classification: {label}
+Reasoning: {comment}
 
 """
         
         return examples_prompt
 
-    def analyze_single_panel(self, image_path: str, panel_type: str, training_data: Optional[List[Dict]] = None) -> Dict:
+    def find_image_pairs(self, image_dir: Path) -> List[Tuple[Path, Path, str]]:
         """
-        Analyze a single panel (sample or control) for deletion signals.
+        Find sample/control image pairs in the directory.
         
         Args:
-            image_path: Path to the panel image
-            panel_type: "sample" or "control"
-            training_data: Optional training data for context
+            image_dir: Directory to search for image pairs
             
         Returns:
-            Dictionary with panel analysis results
+            List of (sample_path, control_path, base_name) tuples
+        """
+        pairs = []
+        image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']
+        processed_bases = set()
+        
+        # Look for files with sample/control naming patterns
+        for img_file in image_dir.glob("*"):
+            if img_file.suffix.lower() in image_extensions:
+                name = img_file.stem
+                
+                # Extract base name and determine if this is sample or control
+                base_name = None
+                is_sample = False
+                is_control = False
+                
+                # Try different patterns
+                if name.endswith('_sample') or name.endswith('.sample'):
+                    base_name = name.replace('_sample', '').replace('.sample', '')
+                    is_sample = True
+                elif name.endswith('_Sample'):
+                    base_name = name.replace('_Sample', '')
+                    is_sample = True
+                elif name.startswith('sample_') or name.startswith('Sample_'):
+                    base_name = name.replace('sample_', '').replace('Sample_', '')
+                    is_sample = True
+                elif name.endswith('_control') or name.endswith('.control'):
+                    base_name = name.replace('_control', '').replace('.control', '')
+                    is_control = True
+                elif name.endswith('_Control'):
+                    base_name = name.replace('_Control', '')
+                    is_control = True
+                elif name.startswith('control_') or name.startswith('Control_'):
+                    base_name = name.replace('control_', '').replace('Control_', '')
+                    is_control = True
+                
+                if base_name and base_name not in processed_bases:
+                    # Look for the corresponding pair
+                    sample_file = None
+                    control_file = None
+                    
+                    if is_sample:
+                        sample_file = img_file
+                        # Look for control
+                        control_patterns = [
+                            f"{base_name}_control",
+                            f"{base_name}.control",
+                            f"control_{base_name}",
+                            f"{base_name}_Control",
+                            f"Control_{base_name}"
+                        ]
+                        
+                        for pattern in control_patterns:
+                            for ext in image_extensions:
+                                candidate = image_dir / f"{pattern}{ext}"
+                                if candidate.exists():
+                                    control_file = candidate
+                                    break
+                            if control_file:
+                                break
+                    
+                    elif is_control:
+                        control_file = img_file
+                        # Look for sample
+                        sample_patterns = [
+                            f"{base_name}_sample",
+                            f"{base_name}.sample",
+                            f"sample_{base_name}",
+                            f"{base_name}_Sample", 
+                            f"Sample_{base_name}"
+                        ]
+                        
+                        for pattern in sample_patterns:
+                            for ext in image_extensions:
+                                candidate = image_dir / f"{pattern}{ext}"
+                                if candidate.exists():
+                                    sample_file = candidate
+                                    break
+                            if sample_file:
+                                break
+                    
+                    if sample_file and control_file:
+                        pairs.append((sample_file, control_file, base_name))
+                        processed_bases.add(base_name)
+        
+        return pairs
+
+    def _validate_single_deletion(self, sample_path: str, control_path: str, 
+                                 training_data: Optional[List[Dict]] = None) -> Dict:
+        """
+        Internal method to validate a single deletion SV from sample/control image pair.
+        
+        Args:
+            sample_path: Path to sample panel image
+            control_path: Path to control panel image
+            training_data: Optional training data for few-shot learning
+            
+        Returns:
+            Dictionary containing classification result and reasoning
         """
         try:
-            encoded_image = self.encode_image(image_path)
+            # Encode both images
+            encoded_sample = self.encode_image(sample_path)
+            encoded_control = self.encode_image(control_path)
             
-            prompt = f"""You are analyzing a {panel_type.upper()} panel from a bamsnap IGV plot.
+            # Create base prompt
+            prompt = f"""You are an expert in analyzing bamsnap IGV plots for structural variant validation.
 
-{self.panel_analysis_rules}
+{self.deletion_rules}
 
-Provide your analysis in JSON format:
+You are provided with TWO separate images:
+1. SAMPLE panel (first image)
+2. CONTROL panel (second image)
+
+Please analyze both panels and classify whether the deletion is:
+- True (1): Real deletion event
+- False (0): False positive
+
+Provide your analysis in the following JSON format:
 {{
-    "panel_classification": "HAS_DELETION/NO_DELETION/UNCLEAR",
+    "classification": 0 or 1,
     "confidence": "high/medium/low",
-    "observed_features": ["list of features you observe"],
-    "coverage_assessment": "description of coverage pattern",
-    "reasoning": "detailed explanation of your assessment"
+    "reasoning": "Detailed explanation of your decision based on the validation rules",
+    "key_features": ["list of key features observed in the plots"],
+    "sample_panel_observations": "What you observe in the sample panel",
+    "control_panel_observations": "What you observe in the control panel"
 }}
 
-Focus specifically on this {panel_type} panel and identify any deletion signals present."""
+Focus on:
+1. Coverage drops in sample vs control
+2. Soft clipping near breakpoints
+3. Presence of red bars (large insert size reads)
+4. Overall pattern differences between sample and control panels
 
+CRITICAL: Apply the comparison rule - if BOTH panels show coverage drops, classify as FALSE."""
+            
+            # Add training examples if provided
+            if training_data:
+                training_prompt = self.create_training_examples_prompt(training_data)
+                prompt += training_prompt
+            
+            # Prepare messages for API call with both images
             messages = [
                 {
                     "role": "user",
@@ -209,150 +338,69 @@ Focus specifically on this {panel_type} panel and identify any deletion signals 
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{encoded_image}"
+                                "url": f"data:image/jpeg;base64,{encoded_sample}"
+                            }
+                        },
+                        {
+                            "type": "image_url", 
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{encoded_control}"
                             }
                         }
                     ]
                 }
             ]
-
+            
+            # Make API call
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=800,
-                temperature=0.1
+                max_tokens=1000,
+                temperature=0.1  # Low temperature for consistent results
             )
-
+            
+            # Parse response
             response_text = response.choices[0].message.content
             
             # Try to extract JSON from response
             try:
+                # Look for JSON in the response
                 import re
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     result = json.loads(json_match.group())
                 else:
+                    # Fallback parsing
                     result = {
-                        "panel_classification": "UNCLEAR",
+                        "classification": 0,
                         "confidence": "low",
-                        "observed_features": [],
-                        "coverage_assessment": "",
-                        "reasoning": response_text
+                        "reasoning": response_text,
+                        "key_features": [],
+                        "sample_panel_observations": "",
+                        "control_panel_observations": ""
                     }
             except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
                 result = {
-                    "panel_classification": "UNCLEAR",
-                    "confidence": "low", 
-                    "observed_features": [],
-                    "coverage_assessment": "",
-                    "reasoning": response_text
+                    "classification": 0,
+                    "confidence": "low",
+                    "reasoning": response_text,
+                    "key_features": [],
+                    "sample_panel_observations": "",
+                    "control_panel_observations": ""
                 }
             
             return result
-
+            
         except Exception as e:
-            self.logger.error(f"Error analyzing {panel_type} panel {image_path}: {e}")
-            return {
-                "panel_classification": "UNCLEAR",
-                "confidence": "low",
-                "observed_features": [],
-                "coverage_assessment": "",
-                "reasoning": f"Error during analysis: {str(e)}"
-            }
-
-    def compare_panels_and_classify(self, sample_result: Dict, control_result: Dict, 
-                                   sample_path: str, control_path: str, 
-                                   training_data: Optional[List[Dict]] = None) -> Dict:
-        """
-        Compare sample and control panel results to make final classification.
-        
-        Args:
-            sample_result: Analysis result from sample panel
-            control_result: Analysis result from control panel
-            sample_path: Path to sample image
-            control_path: Path to control image
-            training_data: Optional training data for context
-            
-        Returns:
-            Final classification result
-        """
-        sample_classification = sample_result.get("panel_classification", "UNCLEAR")
-        control_classification = control_result.get("panel_classification", "UNCLEAR")
-        
-        # Apply comparison logic
-        if sample_classification == "HAS_DELETION" and control_classification == "NO_DELETION":
-            final_classification = 1
-            confidence = "high"
-            reasoning = "Sample shows deletion signals while control does not - TRUE DELETION"
-        elif sample_classification == "NO_DELETION" and control_classification == "NO_DELETION":
-            final_classification = 0
-            confidence = "high"
-            reasoning = "Neither sample nor control show deletion signals - FALSE POSITIVE"
-        elif sample_classification == "HAS_DELETION" and control_classification == "HAS_DELETION":
-            final_classification = 0
-            confidence = "high"
-            reasoning = "Both sample and control show deletion signals - likely reference artifact - FALSE POSITIVE"
-        elif sample_classification == "NO_DELETION" and control_classification == "HAS_DELETION":
-            final_classification = 0
-            confidence = "medium"
-            reasoning = "Control shows deletion signals but sample does not - unusual pattern - FALSE POSITIVE"
-        else:
-            # Handle UNCLEAR cases
-            final_classification = 0
-            confidence = "low"
-            reasoning = f"Unclear evidence in panels (Sample: {sample_classification}, Control: {control_classification}) - defaulting to FALSE POSITIVE"
-
-        return {
-            "classification": final_classification,
-            "confidence": confidence,
-            "reasoning": reasoning,
-            "sample_analysis": sample_result,
-            "control_analysis": control_result,
-            "sample_path": sample_path,
-            "control_path": control_path,
-            "comparison_logic": f"Sample: {sample_classification}, Control: {control_classification}"
-        }
-
-    def _validate_single_deletion_pair(self, sample_path: str, control_path: str, 
-                                      training_data: Optional[List[Dict]] = None) -> Dict:
-        """
-        Validate a deletion from a sample/control image pair.
-        
-        Args:
-            sample_path: Path to sample panel image
-            control_path: Path to control panel image
-            training_data: Optional training data for few-shot learning
-            
-        Returns:
-            Dictionary containing classification result and detailed analysis
-        """
-        try:
-            # Analyze sample panel
-            self.logger.info(f"Analyzing sample panel: {Path(sample_path).name}")
-            sample_result = self.analyze_single_panel(sample_path, "sample", training_data)
-            
-            # Analyze control panel
-            self.logger.info(f"Analyzing control panel: {Path(control_path).name}")
-            control_result = self.analyze_single_panel(control_path, "control", training_data)
-            
-            # Compare and classify
-            final_result = self.compare_panels_and_classify(
-                sample_result, control_result, sample_path, control_path, training_data
-            )
-            
-            return final_result
-
-        except Exception as e:
-            self.logger.error(f"Error validating deletion pair {sample_path}, {control_path}: {e}")
+            self.logger.error(f"Error validating deletion for {sample_path}, {control_path}: {e}")
             return {
                 "classification": 0,
                 "confidence": "low",
                 "reasoning": f"Error during analysis: {str(e)}",
-                "sample_analysis": {},
-                "control_analysis": {},
-                "sample_path": sample_path,
-                "control_path": control_path,
-                "comparison_logic": "Error"
+                "key_features": [],
+                "sample_panel_observations": "",
+                "control_panel_observations": ""
             }
 
     def save_results_csv(self, results: List[Dict], csv_file: str) -> None:
@@ -367,30 +415,21 @@ Focus specifically on this {panel_type} panel and identify any deletion signals 
             with open(csv_file, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 
-                # Write header
+                # Write header (updated for split images)
                 writer.writerow([
                     'sample_path',
-                    'control_path', 
-                    'classification',
-                    'confidence',
-                    'reasoning',
-                    'sample_classification',
-                    'control_classification'
+                    'control_path',
+                    'classification', 
+                    'reasoning'
                 ])
                 
                 # Write data rows
                 for result in results:
-                    sample_analysis = result.get('sample_analysis', {})
-                    control_analysis = result.get('control_analysis', {})
-                    
                     writer.writerow([
                         result.get('sample_path', ''),
                         result.get('control_path', ''),
                         result.get('classification', 0),
-                        result.get('confidence', 'low'),
-                        result.get('reasoning', '').replace('\n', ' ').replace('\r', ' '),
-                        sample_analysis.get('panel_classification', 'UNCLEAR'),
-                        control_analysis.get('panel_classification', 'UNCLEAR')
+                        result.get('reasoning', '').replace('\n', ' ').replace('\r', ' ')  # Clean line breaks
                     ])
                     
             self.logger.info(f"CSV results saved to {csv_file}")
@@ -402,19 +441,21 @@ Focus specifically on this {panel_type} panel and identify any deletion signals 
     def validate_deletions(self, image_dir: str, 
                           output_file: str = None,
                           csv_output_file: str = None,
-                          training_dir: str = None,
+                          training_dir: str = None, 
+                          file_patterns: List[str] = None,
                           parallel_processing: bool = False,
                           max_workers: int = 3) -> List[Dict]:
         """
-        Validate multiple deletion candidates from sample/control image pairs.
+        Validate multiple bamsnap plots for deletion SVs using sample/control image pairs.
         
         Args:
             image_dir: Directory containing sample/control image pairs
-            output_file: Optional JSON output file
-            csv_output_file: Optional CSV output file
-            training_dir: Optional training data directory
-            parallel_processing: Whether to use parallel processing
-            max_workers: Number of parallel workers
+            output_file: Optional output file to save results (JSON format)
+            csv_output_file: Optional CSV file to save simplified results
+            training_dir: Optional directory with training data
+            file_patterns: Optional list of file patterns to match (currently not used for pairs)
+            parallel_processing: Whether to process images in parallel (be careful with API limits)
+            max_workers: Maximum number of parallel workers
             
         Returns:
             List of validation results
@@ -423,49 +464,85 @@ Focus specifically on this {panel_type} panel and identify any deletion signals 
         training_data = []
         if training_dir:
             training_data = self.load_training_data(training_dir)
-
+            if training_data:
+                self.logger.info(f"Loaded {len(training_data)} training examples")
+            else:
+                self.logger.warning("No training data found")
+        
         results = []
         image_path = Path(image_dir)
         
-        # Find sample/control pairs
-        pairs = self.find_image_pairs(image_path)
-        self.logger.info(f"Found {len(pairs)} sample/control pairs to process")
+        # Find all image pairs to process
+        pairs_to_process = self.find_image_pairs(image_path)
+        
+        self.logger.info(f"Found {len(pairs_to_process)} image pairs to process")
         
         if parallel_processing:
+            # Parallel processing (use with caution due to API rate limits)
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
-            def process_pair(sample_path, control_path):
-                return self._validate_single_deletion_pair(
-                    str(sample_path), str(control_path), training_data
+            def process_pair(sample_file, control_file, base_name):
+                self.logger.info(f"Processing pair: {base_name}")
+                result = self._validate_single_deletion(
+                    str(sample_file), 
+                    str(control_file),
+                    training_data if training_data else None
                 )
+                result['sample_file'] = sample_file.name
+                result['control_file'] = control_file.name
+                result['sample_path'] = str(sample_file)
+                result['control_path'] = str(control_file)
+                result['base_name'] = base_name
+                return result
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_pair = {
-                    executor.submit(process_pair, sample, control): (sample, control) 
-                    for sample, control in pairs
+                    executor.submit(process_pair, sample, control, base): (sample, control, base) 
+                    for sample, control, base in pairs_to_process
                 }
                 
                 for future in as_completed(future_to_pair):
-                    sample, control = future_to_pair[future]
+                    sample, control, base = future_to_pair[future]
                     try:
                         result = future.result()
                         results.append(result)
-                        self.logger.info(f"Completed pair: Classification={result['classification']}")
+                        self.logger.info(f"Completed {base}: {result['classification']}")
                     except Exception as e:
-                        self.logger.error(f"Error processing pair {sample.name}, {control.name}: {e}")
+                        self.logger.error(f"Error processing {base}: {e}")
+                        results.append({
+                            'sample_file': sample.name,
+                            'control_file': control.name,
+                            'sample_path': str(sample),
+                            'control_path': str(control),
+                            'base_name': base,
+                            'classification': 0,
+                            'confidence': 'low',
+                            'reasoning': f'Processing error: {str(e)}',
+                            'key_features': [],
+                            'sample_panel_observations': '',
+                            'control_panel_observations': ''
+                        })
         else:
-            # Sequential processing
-            for sample_path, control_path in pairs:
-                self.logger.info(f"Processing pair: {sample_path.name}, {control_path.name}")
+            # Sequential processing (recommended for API stability)
+            for sample_file, control_file, base_name in pairs_to_process:
+                self.logger.info(f"Processing pair: {base_name}")
                 
-                result = self._validate_single_deletion_pair(
-                    str(sample_path), str(control_path), training_data
+                result = self._validate_single_deletion(
+                    str(sample_file), 
+                    str(control_file),
+                    training_data if training_data else None
                 )
                 
+                result['sample_file'] = sample_file.name
+                result['control_file'] = control_file.name
+                result['sample_path'] = str(sample_file)
+                result['control_path'] = str(control_file)
+                result['base_name'] = base_name
                 results.append(result)
-                self.logger.info(f"Completed pair: Classification={result['classification']}, Confidence={result['confidence']}")
-
-        # Save results
+                
+                self.logger.info(f"Completed {base_name}: Classification={result['classification']}, Confidence={result['confidence']}")
+        
+        # Save results if output files specified
         if output_file:
             with open(output_file, 'w') as f:
                 json.dump(results, f, indent=2)
@@ -473,61 +550,26 @@ Focus specifically on this {panel_type} panel and identify any deletion signals 
         
         if csv_output_file:
             self.save_results_csv(results, csv_output_file)
-
+        
         # Print summary
         true_positives = sum(1 for r in results if r['classification'] == 1)
         false_positives = sum(1 for r in results if r['classification'] == 0)
         high_confidence = sum(1 for r in results if r['confidence'] == 'high')
         
         self.logger.info(f"""BATCH PROCESSING SUMMARY:
-Total pairs processed: {len(results)}
+Total image pairs processed: {len(results)}
 True positives (real deletions): {true_positives}
 False positives: {false_positives}
 High confidence predictions: {high_confidence}""")
         
         return results
-
-    def find_image_pairs(self, image_dir: Path) -> List[Tuple[Path, Path]]:
-        """
-        Find sample/control image pairs in the directory.
-        
-        Args:
-            image_dir: Directory to search for image pairs
-            
-        Returns:
-            List of (sample_path, control_path) tuples
-        """
-        pairs = []
-        image_extensions = ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']
-        
-        # Look for files with sample/control naming patterns
-        for img_file in image_dir.glob("*"):
-            if img_file.suffix.lower() in image_extensions:
-                name = img_file.stem
-                
-                # Try different naming patterns
-                if "sample" in name.lower():
-                    # Look for corresponding control
-                    control_name = name.lower().replace("sample", "control")
-                    control_candidates = [
-                        image_dir / f"{control_name}{img_file.suffix}",
-                        image_dir / f"{name.replace('sample', 'control')}{img_file.suffix}",
-                        image_dir / f"{name.replace('Sample', 'Control')}{img_file.suffix}"
-                    ]
-                    
-                    for control_path in control_candidates:
-                        if control_path.exists():
-                            pairs.append((img_file, control_path))
-                            break
-        
-        return pairs
-
+    
     def generate_report(self, results: List[Dict], report_file: str = None) -> str:
         """
-        Generate a summary statistics report from validation results.
+        Generate a summary statistics report from batch validation results.
         
         Args:
-            results: List of validation results
+            results: List of validation results from validate_deletions()
             report_file: Optional file to save the report
             
         Returns:
@@ -536,6 +578,7 @@ High confidence predictions: {high_confidence}""")
         if not results:
             return "No results to generate report from."
         
+        # Calculate statistics
         total = len(results)
         true_positives = sum(1 for r in results if r['classification'] == 1)
         false_positives = sum(1 for r in results if r['classification'] == 0)
@@ -546,6 +589,7 @@ High confidence predictions: {high_confidence}""")
             'low': sum(1 for r in results if r['confidence'] == 'low')
         }
         
+        # Generate summary report
         report = f"""# Split Panel Bamsnap Deletion SV Validation Report
 
 ## Summary Statistics
@@ -565,12 +609,14 @@ High confidence predictions: {high_confidence}""")
         
         return report
 
+# Example usage and testing
 def main():
     """
-    Main function for processing deletion SVs from sample/control image pairs
+    Main function for processing deletion SVs with command line arguments
     """
+    # Set up command line argument parsing
     parser = argparse.ArgumentParser(description="Validate deletion structural variants from sample/control bamsnap image pairs")
-    parser.add_argument("image", help="Directory containing sample/control image pairs")
+    parser.add_argument("image", help="Directory containing sample/control image pairs to analyze")
     parser.add_argument("-t", "--train", default="trainingData/deletion", 
                        help="Training data directory (default: trainingData/deletion)")
     parser.add_argument("-o", "--output-dir", default=None, 
@@ -585,6 +631,8 @@ def main():
                        help="Number of parallel workers (default: 2)")
     parser.add_argument("--no-training", action="store_true", 
                        help="Skip loading training data")
+    parser.add_argument("--patterns", nargs="+", 
+                       help="File patterns to match (note: not used for pair matching)")
     
     args = parser.parse_args()
     
@@ -595,17 +643,19 @@ def main():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("Error: Please set your OPENAI_API_KEY environment variable")
+        print("Example: export OPENAI_API_KEY='sk-your-key-here'")
         return 1
     
     validator = SplitBamsnapSVValidator(api_key, model=args.model)
     
-    # Create output directory
+    # Create output directory with timestamp if not specified
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = Path(f"split_results_{timestamp}")
     else:
         output_dir = Path(args.output_dir)
     
+    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate output file paths
@@ -626,12 +676,14 @@ def main():
         training_dir=args.train if not args.no_training else None,
         output_file=str(output_file),
         csv_output_file=str(csv_file),
+        file_patterns=args.patterns,
         parallel_processing=args.parallel,
         max_workers=args.workers
     )
     
     if not results:
-        print("No image pairs were processed. Check your image directory and naming convention.")
+        print("No image pairs were processed. Check your image directory path and naming convention.")
+        print("Expected naming: basename_sample.ext and basename_control.ext")
         return 1
     
     print(f"\nProcessed {len(results)} image pairs")
@@ -641,7 +693,7 @@ def main():
     report = validator.generate_report(results, str(report_file))
     print("Summary report generated!")
     
-    # Print quick stats
+    # Print quick stats to console
     true_positives = sum(1 for r in results if r['classification'] == 1)
     false_positives = sum(1 for r in results if r['classification'] == 0)
     high_confidence = sum(1 for r in results if r['confidence'] == 'high')
